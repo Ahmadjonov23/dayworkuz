@@ -189,9 +189,9 @@ export async function sendEmailOtp(email: string): Promise<{ ok: boolean; error?
   map[clean] = { code, expiresAt: Date.now() + OTP_TTL_MS, tries: 0 };
   writeOtps(map);
 
-  const SERVICE_ID = "";
-  const TEMPLATE_ID = "";
-  const PUBLIC_KEY = "";
+  const SERVICE_ID = "service_f0s0hcc";
+  const TEMPLATE_ID = "template_qjuo9ji";
+  const PUBLIC_KEY = "aTIqdmL53qC83u16_";
 
   if (SERVICE_ID && TEMPLATE_ID && PUBLIC_KEY) {
     try {
