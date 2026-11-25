@@ -60,8 +60,7 @@ export const SEED_JOBS: Job[] = [
   { id: "z6", type: "Qurilish ishchisi", title: "Beton quyishga yordamchi", description: "Ertalab 8:00 dan. Tushlik beriladi.", pay: 220000, date: "2026-11-20", region: "Toshkent shahri", district: "Sergeli", slots: 4, taken: 2, employer: "Jasur M.", createdAt: Date.now() - 26 * h },
 ];
 
-export type Profile = { phone: string; name: string; region: string; district: string; id: string; balance: number; completed: number };
-
+export type Profile = { phone: string; email?: string; name: string; region: string; district: string; id: string; balance: number; completed: number };
 export const read = <T,>(k: string, fb: T): T => {
   if (typeof window === "undefined") return fb;
   try { const v = localStorage.getItem(k); return v ? (JSON.parse(v) as T) : fb; } catch { return fb; }
@@ -81,6 +80,7 @@ export const users = {
   save: (list: User[]) => write("mk_users", list),
   byId: (id: string) => read<User[]>("mk_users", []).find((u) => u.id === id) ?? null,
   byPhone: (phone: string) => read<User[]>("mk_users", []).find((u) => u.phone === phone) ?? null,
+  byEmail: (email: string) => read<User[]>("mk_users", []).find((u) => (u.email ?? "").toLowerCase() === email.trim().toLowerCase()) ?? null,
   update: (id: string, patch: Partial<User>) => write("mk_users", read<User[]>("mk_users", []).map((u) => (u.id === id ? { ...u, ...patch } : u))),
 };
 export const session = {
