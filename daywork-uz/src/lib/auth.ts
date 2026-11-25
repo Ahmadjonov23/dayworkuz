@@ -158,3 +158,135 @@ export async function adminResetPassword(userId: string): Promise<string> {
   users.update(userId, { pw: await hashPassword(temp), mustChangePw: true, failed: 0, lockUntil: 0 });
   return temp;
 }
+// ---- Email OTP (qo'shimcha usul, telefon/Telegram tizimiga tegmaydi) ----
+const OTP_TTL_MS = 5 * 60 * 1000;
+const OTP_STORE_KEY = "mk_email_otps";
+
+type PendingOtp = { code: string; expiresAt: number; tries: number };
+
+function readOtps(): Record<string, PendingOtp> {
+  if (typeof window === "undefined") return {};
+  try {
+    return JSON.parse(localStorage.getItem(OTP_STORE_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function writeOtps(map: Record<string, PendingOtp>) {
+  localStorage.setItem(OTP_STORE_KEY, JSON.stringify(map));
+}
+
+export const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim());
+export const emailTaken = (email: string) => !!users.byEmail(email);
+
+export async function sendEmailOtp(email: string): Promise<{ ok: boolean; error?: string; demoCode?: string }> {
+  const clean = email.trim().toLowerCase();
+  if (!isValidEmail(clean)) return { ok: false, error: "Email manzil noto‘g‘ri." };
+
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const map = readOtps();
+  map[clean] = { code, expiresAt: Date.now() + OTP_TTL_MS, tries: 0 };
+  writeOtps(map);
+
+  const SERVICE_ID = "";
+  const TEMPLATE_ID = "";
+  const PUBLIC_KEY = "";
+
+  if (SERVICE_ID && TEMPLATE_ID && PUBLIC_KEY) {
+    try {
+      const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          service_id: SERVICE_ID,
+          template_id: TEMPLATE_ID,
+          user_id: PUBLIC_KEY,
+          template_params: {
+            to_email: clean,
+            otp_code: code,
+            message: `Sizning Daywork.uz tasdiqlash kodingiz: ${code}`,
+          },
+        }),
+      });
+      if (!res.ok) return { ok: false, error: "Email yuborishda xatolik yuz berdi." };
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "Internet ulanishida xatolik." };
+    }
+  }
+
+  return { ok: true, demoCode: code };
+}
+
+export function verifyEmailOtp(email: string, code: string): { ok: boolean; error?: string } {
+  const clean = email.trim().toLowerCase();
+  const map = readOtps();
+  const rec = map[clean];
+  if (!rec) return { ok: false, error: "Avval kod yuboring." };
+  if (Date.now() > rec.expiresAt) return { ok: false, error: "Kod muddati tugagan. Qayta yuboring." };
+  if (rec.tries >= 3) return { ok: false, error: "3 marta xato kiritildi. Yangi kod oling." };
+
+  if (rec.code !== code.trim()) {
+    rec.tries += 1;
+    writeOtps(map);
+    return { ok: false, error: `Kod noto‘g‘ri. Qolgan urinish: ${3 - rec.tries}` };
+  }
+
+  delete map[clean];
+  writeOtps(map);
+  return { ok: true };
+}
+
+export async function loginByEmailOtp(email: string, code: string): Promise<Result> {
+  const clean = email.trim().toLowerCase();
+  const chk = verifyEmailOtp(clean, code);
+  if (!chk.ok) return { ok: false, error: chk.error! };
+
+  const u = users.byEmail(clean);
+  if (!u) return { ok: false, error: "Bu email ro‘yxatdan o‘tmagan. Ro‘yxatdan o‘tish bo‘limiga o‘ting." };
+  if (u.blocked) return { ok: false, error: "Hisobingiz administrator tomonidan bloklangan." };
+
+  users.update(u.id, { failed: 0, lockUntil: 0 });
+  session.set(u.id);
+  return { ok: true, user: users.byId(u.id)! };
+}
+
+export async function registerByEmailOtp(d: {
+  email: string;
+  code: string;
+  name: string;
+  region: string;
+  district: string;
+}): Promise<Result> {
+  const clean = d.email.trim().toLowerCase();
+  if (!isValidEmail(clean)) return { ok: false, error: "Email manzil noto‘g‘ri." };
+  if (emailTaken(clean)) return { ok: false, error: "Bu email allaqachon ro‘yxatdan o‘tgan." };
+
+  const chk = verifyEmailOtp(clean, d.code);
+  if (!chk.ok) return { ok: false, error: chk.error! };
+
+  const randPw = crypto.randomUUID() + "Aa1!";
+  let id = generateUserId();
+  while (users.byId(id)) id = generateUserId();
+
+  const user: User = {
+    id,
+    phone: "",
+    email: clean,
+    name: d.name.trim(),
+    region: d.region,
+    district: d.district,
+    balance: 0,
+    completed: 0,
+    role: "user",
+    pw: await hashPassword(randPw),
+    failed: 0,
+    lockUntil: 0,
+    createdAt: Date.now(),
+  };
+
+  users.save([...users.all(), user]);
+  session.set(id);
+  return { ok: true, user };
+}
